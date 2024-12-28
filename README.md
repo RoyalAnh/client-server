@@ -1,5 +1,5 @@
-Xây dựng ứng dụng client/server để gửi và nhận file
-Server cho phép nhiều client kết nối đồng thời
-•	Liệt kê file và folder có ở server
-•	Download  file có sẵn ở server
-•	Upload 1 file từ máy lên server
+Build a client/server application to send and receive files
+Server allows multiple clients to connect simultaneously
+  •   List files and folders available on the server
+  •   Download files available on the server
+  •   Upload a file from the computer to the server
