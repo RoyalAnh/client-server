@@ -11,35 +11,30 @@
 #define BUFFER_SIZE 1048576
 #define PORT 5003
 #define SHARED_FOLDER "/home/user/shared"
-#define MAX_FILENAME_LEN 255  // Maximum filename length
-
-// Kiểm tra file trong thư mục chia sẻ
-int file_exists(const char *filename) {
-    char filepath[BUFFER_SIZE];
-    snprintf(filepath, sizeof(filepath), "%s/%s", SHARED_FOLDER, filename);
-    FILE *file = fopen(filepath, "r");
-    if (file) {
-        fclose(file);
-        return 1;
-    }
-    return 0;
-}
-
-// Hàm tạo thư mục nếu chưa tồn tại
-void create_directory_if_not_exists(const char *dir) {
-    struct stat st = {0};
-
-    // Kiểm tra xem thư mục đã tồn tại chưa, nếu chưa thì tạo mới
-    if (stat(dir, &st) == -1) {
-        mkdir(dir, 0700);  // Quyền truy cập là 0700 (chỉ cho chủ sở hữu)
-    }
-}
-
+#define MAX_FILENAME_LEN 255
 
 // Hàm gửi danh sách file tới client
+void send_file_list(int client_socket, const char *base_path);
+
+// Kiểm tra file trong thư mục chia sẻ
+int file_exists(const char *filename);
+// Hàm gửi file tới client
+void send_file_to_client(int client_socket, const char *filename);
+
+// Hàm tạo thư mục nếu chưa tồn tại
+void create_directory_if_not_exists(const char *dir);
+// Hàm nhận file từ client
+void receive_file_from_client(int client_socket, const char *filename);
+
+//Xử lý các yêu cầu từ client
+void *handle_client(void *arg);
+//Khởi tạo server
+void start_server();
+
 void send_file_list(int client_socket, const char *base_path) {
     DIR *d;
     struct dirent *dir;
+
     d = opendir(base_path);
 
     if (d) {
@@ -54,9 +49,9 @@ void send_file_list(int client_socket, const char *base_path) {
             snprintf(fullpath, sizeof(fullpath), "%s/%s", base_path, dir->d_name);
             stat(fullpath, &path_stat);
 
-            if (S_ISDIR(path_stat.st_mode)) {  // Thư mục
+            if (S_ISDIR(path_stat.st_mode)) {
                 strcat(file_list, "[DIR] ");
-            } else if (S_ISREG(path_stat.st_mode)) {  // File thông thường
+            } else if (S_ISREG(path_stat.st_mode)) { 
                 strcat(file_list, "[FILE] ");
             }
             strcat(file_list, dir->d_name);
@@ -70,7 +65,18 @@ void send_file_list(int client_socket, const char *base_path) {
     }
 }
 
-// Hàm gửi file tới client
+int file_exists(const char *filename) {
+    char filepath[BUFFER_SIZE];
+    snprintf(filepath, sizeof(filepath), "%s/%s", SHARED_FOLDER, filename);
+    FILE *file = fopen(filepath, "r");
+    if (file) {
+        fclose(file);
+        return 1;
+    }
+    return 0;
+}
+
+
 void send_file_to_client(int client_socket, const char *filename) {
     char filepath[BUFFER_SIZE];
     snprintf(filepath, sizeof(filepath), "%s/%s", SHARED_FOLDER, filename);
@@ -95,14 +101,20 @@ void send_file_to_client(int client_socket, const char *filename) {
     fclose(file);
 }
 
+void create_directory_if_not_exists(const char *dir) {
+    struct stat st = {0};
+
+    if (stat(dir, &st) == -1) {
+        mkdir(dir, 0700);  
+    }
+}
+
 void receive_file_from_client(int client_socket, const char *filename) {
     create_directory_if_not_exists(SHARED_FOLDER);
 
-    // Construct the file path
     char filepath[BUFFER_SIZE];
     snprintf(filepath, sizeof(filepath), "%s/%s", SHARED_FOLDER, filename);
 
-    // Create the file on the server to save the data
     FILE *file = fopen(filepath, "wb");
     if (!file) {
         perror("Cannot create file");
@@ -112,7 +124,6 @@ void receive_file_from_client(int client_socket, const char *filename) {
     char buffer_data[BUFFER_SIZE];
     ssize_t bytes_received;
 
-    // Receive data from client and write to file
     while ((bytes_received = recv(client_socket, buffer_data, BUFFER_SIZE, 0)) > 0) {
         fwrite(buffer_data, 1, bytes_received, file);
 
@@ -126,7 +137,6 @@ void receive_file_from_client(int client_socket, const char *filename) {
     fclose(file);
 }
 
-
 void *handle_client(void *arg) {
     int client_socket = *(int *)arg;
     free(arg);
@@ -134,15 +144,18 @@ void *handle_client(void *arg) {
     char buffer[BUFFER_SIZE];
     memset(buffer, 0, BUFFER_SIZE);
 
-    // Đọc yêu cầu từ client
     read(client_socket, buffer, sizeof(buffer));
     printf("Received request: %s\n", buffer);
 
-    // Xử lý yêu cầu từ client
     if (strncmp(buffer, "LIST", 4) == 0) {
         char directory[BUFFER_SIZE] = SHARED_FOLDER;
         if (strlen(buffer) > 5) {
-            sscanf(buffer, "LIST %s", directory);
+            int it;
+            char buffer_cut[1024];
+            for (it = 5; it < strlen(buffer) - 1; ++it) {
+                buffer_cut[it - 5] = buffer[it];
+            }
+            snprintf(directory, sizeof(directory), "%s/%s", SHARED_FOLDER, buffer_cut);
         }
         send_file_list(client_socket, directory);
     } 
@@ -173,6 +186,7 @@ void *handle_client(void *arg) {
     close(client_socket);
     return NULL;
 }
+
 
 void start_server() {
     int server_fd, client_socket;
@@ -216,8 +230,7 @@ void start_server() {
             continue;
         }
 
-        // Hiển thị địa chỉ IP của client kết nối thành công
-        char client_ip[INET_ADDRSTRLEN];  // INET_ADDRSTRLEN đảm bảo kích thước đủ lớn cho chuỗi IP
+        char client_ip[INET_ADDRSTRLEN];  
         inet_ntop(AF_INET, &(client_addr.sin_addr), client_ip, INET_ADDRSTRLEN);
         printf("Client connected from IP: %s, Port: %d\n", client_ip, ntohs(client_addr.sin_port));
 
@@ -232,7 +245,6 @@ void start_server() {
     close(server_fd);
 }
 
-// Hàm main
 int main() {
     start_server();
     return 0;
